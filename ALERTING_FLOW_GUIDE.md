@@ -42,7 +42,7 @@ The three settings schemas work together to create a complete alerting and notif
 ---
 
 ### 2. **builtin:alerting.profile**
-**Purpose:** Controls how problems are grouped, consolidated, and filtered
+**Purpose:** Controls how problems are grouped and filtered
 
 **Role in Alert Flow:**
 - Acts as a reusable filter and processor BETWEEN problem detection and notification
@@ -139,7 +139,7 @@ The three settings schemas work together to create a complete alerting and notif
 ┌─────────────────────────────────────────────────────────────────┐
 │                    PROBLEM DETECTION LAYER                      │
 │         builtin:anomaly-detection.metric-events                 │
-│  (Metric Thresholds → Anomalies → Initial Problem Creation)    │
+│  (Metric Thresholds → Anomalies → Initial Problem Creation)     │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      │ Problem Detected
@@ -147,15 +147,15 @@ The three settings schemas work together to create a complete alerting and notif
 ┌─────────────────────────────────────────────────────────────────┐
 │                   ALERT MANAGEMENT LAYER                        │
 │              builtin:alerting.profile                           │
-│  (Grouping → Deduplication → Filtering → Consolidation)        │
+│                (Grouping → Filtering )                          │
 └────────────────────┬────────────────────────────────────────────┘
                      │
                      │ Alert Ready for Notification
                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  NOTIFICATION DELIVERY LAYER                    │
-│            builtin:problem.notifications                        │
-│  (Routing → Integration → Escalation → User/System Delivery)   │
+┌──────────────────────────────────────────────────────────────────┐
+│                  NOTIFICATION DELIVERY LAYER                     │
+│            builtin:problem.notifications                         │
+│  (Routing → Integration → Escalation → User/System Delivery)     │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -170,11 +170,8 @@ The three settings schemas work together to create a complete alerting and notif
    - Detects that CPU has exceeded baseline by 4 deviations for 5 consecutive minutes
    - Creates a CRITICAL problem with tags: `environment:production`, `type:performance`
 
-2. **Management (alerting.profile)**
+2. **Filtering (alerting.profile)**
    - Alert profile's rule matches: severity=CRITICAL and tag filter includes production
-   - Looks for similar problems in the last 5 minutes (delay window)
-   - Finds 3 related CPU alerts from the same host
-   - Consolidates them into ONE alert to reduce noise
    - Forwards consolidated alert for notification
 
 3. **Notification (problem.notifications)**
