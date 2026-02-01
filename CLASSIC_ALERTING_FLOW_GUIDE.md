@@ -81,55 +81,73 @@ The three settings schemas work together to create a complete alerting and notif
 ---
 
 ### 3. **builtin:problem.notifications**
-**Purpose:** Defines HOW and WHERE problems are notified
+**Purpose:** Routes problems to external systems and users based on alerting profiles
 
 **Role in Alert Flow:**
-- The final destination stage of the alert flow
-- Routes problems to notification channels (email, Slack, PagerDuty, webhooks, etc.)
-- Determines who gets notified based on problem characteristics
-- Handles notification escalation and repeat notifications
-- Integrates with external systems
+- The final delivery stage of the alert flow
+- Binds notification channels to specific alerting profiles (not direct problem filtering)
+- Routes problems to email, webhooks, integrations, and external systems
+- Controls notification payload, recipients, and delivery options
+- Enables alert state tracking (open/closed problem notifications)
 
 **Key Characteristics:**
-- Channel-based: Routes to email, SMS, webhooks, integrations, etc.
-- Recipient determination: Can use tags, entity types, or custom routing
-- Escalation paths: Can escalate through multiple channels/recipients
-- Event type filtering: Can trigger on problem creation, resolution, or both
+- **Profile-based routing:** Each notification rule is explicitly tied to an alerting profile via `alertingProfile` field
+- **Type-based configuration:** Different notification types (EMAIL, WEBHOOK, etc.) have type-specific settings
+- **Template system:** Uses placeholders like `{State}`, `{ProblemID}`, `{ImpactedEntity}`, `{ProblemDetailsHTML}` for dynamic content
+- **State notifications:** Can notify on problem creation and/or closure with `notifyClosedProblems` flag
+- **Custom payloads:** Webhooks support custom JSON/XML payloads with template variables
+- **Certificate handling:** Can accept/reject untrusted SSL certificates for webhook destinations
 
-**Example Configuration Structure:**
+**Real-World Structure from Downloaded Settings:**
+
+**Email Notification Example:**
 ```json
 {
-  "objectId": "notification-rule-id",
+  "objectId": "vu9U3hXa3q0AAAABAB1idWlsdGluOnByb2JsZW0ubm90aWZpY2F0aW9ucwAGdGVuYW50...",
   "value": {
-    "displayName": "Production Incident Notification",
     "enabled": true,
-    "rules": [{
-      "type": "PROBLEM",
-      "enabled": true,
-      "filter": {
-        "customFilter": {
-          "filterOperator": "AND",
-          "filters": [{
-            "filterOperator": "OR",
-            "nestedFilters": [{
-              "key": "SEVERITY",
-              "stringValue": "CRITICAL"
-            }]
-          }]
-        }
-      },
-      "notificationTargets": [{
-        "type": "SLACK",
-        "slackNotificationConfig": {
-          "url": "https://hooks.slack.com/services/YOUR/WEBHOOK/URL",
-          "channel": "#incidents"
-        }
-      }]
-    }],
-    "eventTypeFilter": ["CREATED", "RESOLVED"]
+    "type": "EMAIL",
+    "displayName": "example email",
+    "emailNotification": {
+      "recipients": ["bob@example.com"],
+      "ccRecipients": [],
+      "bccRecipients": [],
+      "subject": "{State} Problem {ProblemID}: {ImpactedEntity}",
+      "notifyClosedProblems": true,
+      "body": "{ProblemDetailsHTML}"
+    },
+    "alertingProfile": "vu9U3hXa3q0AAAABABhidWlsdGluOmFsZXJ0aW5nLnByb2ZpbGU..."
   }
 }
 ```
+
+**Webhook Notification Example:**
+```json
+{
+  "objectId": "vu9U3hXa3q0AAAABAB1idWlsdGluOnByb2JsZW0ubm90aWZpY2F0aW9ucwAGdGVuYW50...",
+  "value": {
+    "enabled": true,
+    "type": "WEBHOOK",
+    "displayName": "example webhook",
+    "webHookNotification": {
+      "url": "https://example.com",
+      "acceptAnyCertificate": false,
+      "notifyEventMergesEnabled": false,
+      "notifyClosedProblems": true,
+      "headers": [],
+      "payload": "{\n\"State\":\"{State}\",\n\"ProblemID\":\"{ProblemID}\",\n\"ProblemTitle\":\"{ProblemTitle}\"\n}"
+    },
+    "alertingProfile": "vu9U3hXa3q0AAAABABhidWlsdGluOmFsZXJ0aW5nLnByb2ZpbGU..."
+  }
+}
+```
+
+**Key Structural Insights:**
+- Each notification object is a **complete, self-contained notification rule** (not a reusable template)
+- The `alertingProfile` field creates a **direct 1:1 binding** to an alerting profile
+- Multiple notification objects can reference the same alerting profile for multi-channel delivery
+- The notification inherits problem scope and filtering from its linked alerting profile
+- Template variables are substituted when problems match the linked alerting profile's criteria
 
 ---
 
@@ -142,22 +160,34 @@ The three settings schemas work together to create a complete alerting and notif
 │  (Metric Thresholds → Anomalies → Initial Problem Creation)     │
 └────────────────────┬────────────────────────────────────────────┘
                      │
-                     │ Problem Detected
+                     │ Problem with tags/severity
                      ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                   ALERT MANAGEMENT LAYER                        │
 │              builtin:alerting.profile                           │
-│                (Grouping → Filtering )                          │
+│      (Filter by severity/tags → Consolidate → Ready)            │
 └────────────────────┬────────────────────────────────────────────┘
                      │
-                     │ Alert Ready for Notification
+                     │ Problem passes alerting profile filter
                      ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                  NOTIFICATION DELIVERY LAYER                     │
-│            builtin:problem.notifications                         │
-│  (Routing → Integration → Escalation → User/System Delivery)     │
-└──────────────────────────────────────────────────────────────────┘
+    ┌────────────────┴────────────────┐
+    │                                 │
+    ▼                                 ▼
+┌─────────────────────┐       ┌─────────────────────┐
+│  EMAIL NOTIFICATION │       │ WEBHOOK NOTIFICATION│
+│ (Bound to Alert     │       │ (Bound to Alert     │
+│  Profile via ID)    │       │  Profile via ID)    │
+└─────────────────────┘       └─────────────────────┘
+    │                                 │
+    │ Renders template                │ Sends JSON payload
+    │ with problem data               │ with problem data
+    │                                 │
+    ▼                                 ▼
+  EMAIL DELIVERY           EXTERNAL SYSTEM INTEGRATION
+  (bob@example.com)        (https://example.com)
 ```
+
+**Key Relationship:** Each `builtin:problem.notifications` object explicitly references a specific `builtin:alerting.profile` through the `alertingProfile` field. Problems only reach that notification channel if they pass the linked alerting profile's filters.
 
 ---
 
@@ -171,14 +201,16 @@ The three settings schemas work together to create a complete alerting and notif
    - Creates a CRITICAL problem with tags: `environment:production`, `type:performance`
 
 2. **Filtering (alerting.profile)**
-   - Alert profile's rule matches: severity=CRITICAL and tag filter includes production
-   - Forwards consolidated alert for notification
+   - "Team Linz" alerting profile's rule matches: severity=AVAILABILITY and tagFilter includes AppTeam
+   - Determines if this problem should trigger notifications linked to this profile
+   - Forwards to all notification objects that reference this alerting profile
 
 3. **Notification (problem.notifications)**
-   - Notification rule filters: "Send CRITICAL problems with tag 'type:performance' to Slack"
-   - Additionally, escalates to PagerDuty if problem persists > 15 minutes
-   - Sends initial notification to #incidents Slack channel
-   - If resolved, sends a "Resolved" message to the same channel
+   - Email notification object references the "Team Linz" alerting profile
+   - Problem matches, so email is sent to bob@example.com with template variables substituted
+   - Webhook notification object also references the "Team Linz" alerting profile  
+   - Custom JSON payload is POSTed to https://example.com with problem details
+   - Both notifications inherit the alerting profile's filtering logic
 
 ---
 
@@ -189,15 +221,23 @@ The three settings schemas work together to create a complete alerting and notif
 - **Interaction:** The severity and tags from anomaly detection are used by alerting profiles to filter and group
 - **Example:** If anomaly detection doesn't create a problem, the alerting profile never triggers
 
-### Alerting Profile → Problem Notifications
-- **Dependency:** Problem notifications only fire on problems processed by alerting profiles
-- **Interaction:** Alerting profile rules determine which problems are "ready" for notification
-- **Example:** If alerting profile filters out a problem, no notification is sent
+### Alerting Profile → Problem Notifications (Explicit Binding)
+- **Dependency:** Each problem notification object contains an `alertingProfile` field with the ID of its associated alerting profile
+- **Interaction:** Problem notifications only fire on problems that BOTH:
+  1. Pass through the linked alerting profile's filters (severity, tags, delays)
+  2. Match the notification's specific type/configuration
+- **One-to-Many Pattern:** One alerting profile can be referenced by multiple notification objects (email, webhook, etc.)
+- **Example:** 
+  - Alerting profile "Team Linz" has AVAILABILITY severity rule with AppTeam tag filter
+  - Email notification "Team Linz Email" references this profile
+  - Webhook notification "Team Linz Webhook" also references this profile
+  - Both notifications fire only when problems match the profile's rules
 
 ### All Three Together
 - **Complete lifecycle:** Anomaly Detection (WHEN) → Alerting Profile (WHAT/HOW_MUCH) → Notifications (WHERE/TO_WHOM)
-- **Filtering layers:** Each layer can suppress/enhance based on different criteria
-- **Tag-based routing:** Tags from detection flow through profiles to notifications for intelligent routing
+- **Explicit routing:** Notifications don't auto-discover problems; they're explicitly bound to profiles
+- **Tag-based routing:** Tags from detection → used by alerting profiles for filtering → inherited by notifications
+- **Multi-channel support:** Multiple notifications can be bound to same profile for multi-channel delivery without rule duplication
 
 ---
 
@@ -237,9 +277,11 @@ When you run `download_settings.py`, each schema will produce folders containing
 - Contains grouping logic, time windows, and severity filters
 
 ### Notification Files
-- Multiple `.json` files for different notification configurations
-- Each file represents one notification rule or integration configuration
-- Contains channel information, escalation paths, and filters
+- Each `.json` file is one complete notification rule/integration (EMAIL, WEBHOOK, etc.)
+- Contains the `alertingProfile` field showing which profile this notification is bound to
+- Template variables are rendered when problems from that profile are received
+- Multiple notification files can reference the same alerting profile for multi-channel delivery
+- Example structure includes email recipients, webhook URLs, custom JSON payloads, and delivery options
 
 ---
 
